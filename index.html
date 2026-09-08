@@ -180,6 +180,25 @@
             transform: translateY(-1px);
         }
 
+        .action:disabled {
+            cursor: wait;
+            opacity: .7;
+            transform: none;
+        }
+
+        .action.is-loading::before {
+            content: "";
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 7px;
+            border: 2px solid currentColor;
+            border-right-color: transparent;
+            border-radius: 50%;
+            vertical-align: -2px;
+            animation: spin .7s linear infinite;
+        }
+
         .action.secondary {
             color: var(--ink);
             background: #f2f0eb;
@@ -362,6 +381,12 @@
             }
         }
 
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
         @media (max-width: 720px) {
             .topbar {
                 align-items: flex-start;
@@ -536,7 +561,7 @@
             ".woff2": "font/woff2"
         })[fileName.slice(fileName.lastIndexOf(".")).toLowerCase()] || "application/octet-stream";
 
-        const openStorageHtml = async (file, allFiles, targetWindow) => {
+        const openStorageHtml = async (file, allFiles) => {
             const previewToken = crypto.randomUUID();
             activePreviewToken = previewToken;
             const blobUrls = [];
@@ -735,8 +760,29 @@
             const blobUrl = URL.createObjectURL(new Blob([finalHtml], {
                 type: "text/html"
             }));
-            targetWindow.location.href = blobUrl;
+            return blobUrl;
         };
+
+        const waitForPreviewLoad = (previewUrl, fileName) => new Promise((resolve, reject) => {
+            const iframe = document.createElement("iframe");
+            const timeout = setTimeout(() => {
+                iframe.remove();
+                reject(new Error(`${fileName} 預覽載入逾時。`));
+            }, 30000);
+            iframe.hidden = true;
+            iframe.onload = () => {
+                clearTimeout(timeout);
+                iframe.remove();
+                resolve();
+            };
+            iframe.onerror = () => {
+                clearTimeout(timeout);
+                iframe.remove();
+                reject(new Error(`${fileName} 預覽載入失敗。`));
+            };
+            iframe.src = previewUrl;
+            document.body.append(iframe);
+        });
 
         const renderFiles = (files) => {
             const htmlFiles = files.filter((file) => file.name.toLowerCase().endsWith(".html"));
@@ -749,27 +795,36 @@
           </div>
           <div class="row-actions">
                         <button class="action secondary preview-button" data-path="${encodeURIComponent(file.fullPath)}">預覽</button>
-                        <button class="action open-button" data-path="${encodeURIComponent(file.fullPath)}">開啟</button>
           </div>
         </article>`).join("") : `<div class="empty">這個路徑沒有找到 HTML 文件。</div>`;
 
-                        document.querySelectorAll(".preview-button, .open-button").forEach((button) => button.addEventListener("click", async () => {
+                        document.querySelectorAll(".preview-button").forEach((button) => button.addEventListener("click", async () => {
                                 const file = files.find((item) => item.fullPath === decodeURIComponent(button.dataset.path));
                                 if (!file) return;
-                            const targetWindow = window.open("about:blank", "_blank");
+                            const originalLabel = button.textContent;
+                            let previewUrl = "";
+                            button.disabled = true;
+                            button.classList.add("is-loading");
+                            button.textContent = "載入中…";
+                                try {
+                                        showStatus(loadStatus, `正在準備 ${file.name}…`);
+                            previewUrl = await openStorageHtml(file, files);
+                                    showStatus(loadStatus, `正在載入 ${file.name} 預覽…`);
+                                    await waitForPreviewLoad(previewUrl, file.name);
+                            const targetWindow = window.open(previewUrl, "_blank");
                             if (!targetWindow) {
+                                URL.revokeObjectURL(previewUrl);
                                 showStatus(loadStatus, "瀏覽器阻擋了新分頁，請允許這個網站開啟彈出視窗。", true);
                                 return;
                             }
-                            targetWindow.document.title = `正在載入 ${file.name}…`;
-                                targetWindow.document.body.innerHTML = "<div style='display:grid;place-items:center;height:100vh;background:#fff' aria-label='正在載入'><div style='width:32px;height:32px;border:3px solid #e4e7ec;border-top-color:#c95536;border-radius:50%;animation:spin .8s linear infinite'></div></div><style>@keyframes spin{to{transform:rotate(360deg)}}</style>";
-                                try {
-                                        showStatus(loadStatus, `正在準備 ${file.name}…`);
-                                await openStorageHtml(file, files, targetWindow);
                                         showStatus(loadStatus, `已開啟 ${file.name}。`);
                                 } catch (error) {
-                                targetWindow.close();
+                                        if (previewUrl) URL.revokeObjectURL(previewUrl);
                                         showStatus(loadStatus, error.message || "無法開啟 HTML 文件。", true);
+                                    } finally {
+                                        button.disabled = false;
+                                        button.classList.remove("is-loading");
+                                        button.textContent = originalLabel;
                                 }
                         }));
         };
