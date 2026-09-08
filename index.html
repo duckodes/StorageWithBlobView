@@ -565,20 +565,27 @@
                 blobUrls.push(blobUrl);
                 fileMap.set(item.fullPath, blobUrl);
             }
+            const previewDirectory = file.fullPath.slice(0, file.fullPath.lastIndexOf("/") + 1);
+
+            const rewriteCssReferences = (css, directory) => css
+                .replace(/url\(\s*["']?([^\)"']+)["']?\s*\)/gi, (match, value) => {
+                    if (isExternalReference(value)) return match;
+                    const [reference, suffix = ""] = value.split(/([?#].*)/, 2);
+                    const target = fileMap.get(storagePathFor(reference, directory));
+                    return target ? `url("${target}${suffix}")` : match;
+                })
+                .replace(/(@import\s*["'])([^"']+)(["'])/gi, (match, prefix, value, suffix) => {
+                    if (isExternalReference(value)) return match;
+                    const [reference, query = ""] = value.split(/([?#].*)/, 2);
+                    const target = fileMap.get(storagePathFor(reference, directory));
+                    return target ? `${prefix}${target}${query}${suffix}` : match;
+                });
 
             for (const item of allFiles.filter((candidate) => candidate.name.toLowerCase().endsWith(".css"))) {
                 const cssResponse = await fetchWithTimeout(fileMap.get(item.fullPath), item.name);
                 const css = await cssResponse.text();
                 const directory = item.fullPath.slice(0, item.fullPath.lastIndexOf("/") + 1);
-                const rewrittenCss = css.replace(/url\(\s*["']?([^\)"']+)["']?\s*\)/gi, (match, value) => {
-                    if (isExternalReference(value)) return match;
-                    const target = fileMap.get(storagePathFor(value, directory));
-                    return target ? `url("${target}")` : match;
-                }).replace(/(@import\s*["'])([^"']+)(["'])/gi, (match, prefix, value, suffix) => {
-                    if (isExternalReference(value)) return match;
-                    const target = fileMap.get(storagePathFor(value, directory));
-                    return target ? `${prefix}${target}${suffix}` : match;
-                });
+                const rewrittenCss = rewriteCssReferences(css, directory);
                 const cssBlobUrl = URL.createObjectURL(new Blob([rewrittenCss], { type: "text/css" }));
                 blobUrls.push(cssBlobUrl);
                 fileMap.set(item.fullPath, cssBlobUrl);
@@ -588,6 +595,13 @@
             const findStorageFile = (path) => filesByPath.get(path)
                 || allFiles.find((item) => item.fullPath.endsWith(`/${path}`))
                 || allFiles.find((item) => item.name === path.split("/").pop());
+            const rewriteModuleAssetReferences = (source, directory) => source.replace(/(["'`])(\.\.?\/[^"'`]+)\1/g, (match, quote, specifier) => {
+                const [reference, suffix = ""] = specifier.split(/([?#].*)/, 2);
+                const dependency = findStorageFile(storagePathFor(reference, directory));
+                if (dependency && /\.(?:m?js)$/i.test(dependency.name)) return match;
+                const dependencyUrl = dependency && fileMap.get(dependency.fullPath);
+                return dependencyUrl ? `${quote}${dependencyUrl}${suffix}${quote}` : match;
+            });
             const moduleFiles = allFiles.filter((item) => /\.(?:m?js)$/i.test(item.name));
             const moduleSources = new Map(await Promise.all(moduleFiles.map(async (item) => {
                 const response = await fetchWithTimeout(item.url, item.name);
@@ -625,7 +639,8 @@
                             const path = args.path.replace(/^\/+/, "");
                             const source = moduleSources.get(path);
                             if (source == null) return { errors: [{ text: `找不到模組：${path}` }] };
-                            return { contents: source, loader: "js", resolveDir: path.slice(0, path.lastIndexOf("/")) };
+                            const directory = path.slice(0, path.lastIndexOf("/") + 1);
+                            return { contents: rewriteModuleAssetReferences(source, previewDirectory), loader: "js", resolveDir: path.slice(0, path.lastIndexOf("/")) };
                         });
                     }
                 }]
@@ -664,6 +679,13 @@
             html = rewriteModuleReferences(html, file.fullPath.slice(0, file.fullPath.lastIndexOf("/") + 1));
             const document = new DOMParser().parseFromString(html, "text/html");
             const directory = file.fullPath.slice(0, file.fullPath.lastIndexOf("/") + 1);
+
+            document.querySelectorAll("style").forEach((style) => {
+                style.textContent = rewriteCssReferences(style.textContent, directory);
+            });
+            document.querySelectorAll("[style]").forEach((element) => {
+                element.setAttribute("style", rewriteCssReferences(element.getAttribute("style"), directory));
+            });
 
             document.querySelectorAll("script").forEach((script) => {
                 const source = script.getAttribute("src");
