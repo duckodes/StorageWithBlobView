@@ -1,0 +1,1 @@
+npx esbuild res/module/main.js --bundle --minify --format=esm --outfile=chunks/main.min.js --analyze
