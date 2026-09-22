@@ -57,6 +57,19 @@
                     <div class="panel file-list" id="fileList">
                         <div class="empty">請先載入 Storage 路徑。</div>
                     </div>
+                    <section id="previewPanel" class="preview-panel hidden" aria-label="文件預覽">
+                        <div class="preview-head">
+                            <div class="preview-meta">
+                                <h2 id="previewTitle">預覽</h2>
+                                <div id="previewPath" class="crumb"></div>
+                            </div>
+                            <div class="preview-actions">
+                                <button id="fullscreenPreviewButton" class="action secondary" type="button">展開預覽</button>
+                                <button id="closePreviewButton" class="action secondary" type="button">關閉預覽</button>
+                            </div>
+                        </div>
+                        <iframe id="previewFrame" class="preview-frame" title="HTML 文件預覽"></iframe>
+                    </section>
                     <p id="loadStatus" class="status" role="status"></p>
                 </section>
             </div>

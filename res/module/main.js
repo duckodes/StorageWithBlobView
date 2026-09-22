@@ -266,8 +266,8 @@ const openStorageHtml = async (file, allFiles) => {
 
     const runtimeScript = document.createElement("script");
     runtimeScript.textContent = `
-                window.addEventListener("error", (event) => window.opener?.postMessage({ type: "preview-error", token: "${previewToken}", message: (event.error?.stack || event.message) + " @ " + (event.filename || "unknown") + ":" + (event.lineno || 0) + ":" + (event.colno || 0) }, "*"));
-                window.addEventListener("unhandledrejection", (event) => window.opener?.postMessage({ type: "preview-error", token: "${previewToken}", message: event.reason?.stack || String(event.reason) }, "*"));
+                window.addEventListener("error", (event) => window.parent?.postMessage({ type: "preview-error", token: "${previewToken}", message: (event.error?.stack || event.message) + " @ " + (event.filename || "unknown") + ":" + (event.lineno || 0) + ":" + (event.colno || 0) }, "*"));
+                window.addEventListener("unhandledrejection", (event) => window.parent?.postMessage({ type: "preview-error", token: "${previewToken}", message: event.reason?.stack || String(event.reason) }, "*"));
             `;
     document.head.prepend(runtimeScript);
 
@@ -277,27 +277,6 @@ const openStorageHtml = async (file, allFiles) => {
     }));
     return blobUrl;
 };
-
-const waitForPreviewLoad = (previewUrl, fileName) => new Promise((resolve, reject) => {
-    const iframe = document.createElement("iframe");
-    const timeout = setTimeout(() => {
-        iframe.remove();
-        reject(new Error(`${fileName} 預覽載入逾時。`));
-    }, 30000);
-    iframe.hidden = true;
-    iframe.onload = () => {
-        clearTimeout(timeout);
-        iframe.remove();
-        resolve();
-    };
-    iframe.onerror = () => {
-        clearTimeout(timeout);
-        iframe.remove();
-        reject(new Error(`${fileName} 預覽載入失敗。`));
-    };
-    iframe.src = previewUrl;
-    document.body.append(iframe);
-});
 
 const renderFiles = (files) => {
     const htmlFiles = files.filter((file) => file.name.toLowerCase().endsWith(".html"));
@@ -324,15 +303,11 @@ const renderFiles = (files) => {
         try {
             showStatus(loadStatus, `正在準備 ${file.name}…`);
             previewUrl = await openStorageHtml(file, files);
-            showStatus(loadStatus, `正在載入 ${file.name} 預覽…`);
-            await waitForPreviewLoad(previewUrl, file.name);
-            const targetWindow = window.open(previewUrl, "_blank");
-            if (!targetWindow) {
-                URL.revokeObjectURL(previewUrl);
-                showStatus(loadStatus, "瀏覽器阻擋了新分頁，請允許這個網站開啟彈出視窗。", true);
-                return;
-            }
-            showStatus(loadStatus, `已開啟 ${file.name}。`);
+            $("previewTitle").textContent = file.name;
+            $("previewPath").textContent = file.fullPath;
+            $("previewFrame").src = previewUrl;
+            $("previewPanel").classList.remove("hidden");
+            showStatus(loadStatus, `已在頁面內載入 ${file.name} 預覽。`);
         } catch (error) {
             if (previewUrl) URL.revokeObjectURL(previewUrl);
             showStatus(loadStatus, error.message || "無法開啟 HTML 文件。", true);
@@ -343,6 +318,24 @@ const renderFiles = (files) => {
         }
     }));
 };
+
+$("closePreviewButton").addEventListener("click", () => {
+    const frame = $("previewFrame");
+    const previewUrl = frame.src;
+    frame.src = "about:blank";
+    $("previewPanel").classList.add("hidden");
+    if (previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
+});
+
+const fullscreenPreviewButton = $("fullscreenPreviewButton");
+const previewPanel = $("previewPanel");
+const previewHost = previewPanel.closest(".content");
+fullscreenPreviewButton.addEventListener("click", () => {
+    const expanded = previewPanel.classList.toggle("is-expanded");
+    document.body.classList.toggle("preview-expanded-body", expanded);
+    previewHost.classList.toggle("preview-host-expanded", expanded);
+    fullscreenPreviewButton.textContent = expanded ? "退出預覽" : "展開預覽";
+});
 
 const loadFiles = async () => {
     const path = $("storagePath").value.trim().replace(/^\/+|\/+$/g, "");

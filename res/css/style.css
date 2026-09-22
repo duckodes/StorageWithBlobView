@@ -304,6 +304,108 @@ h1 {
     color: #b42318;
 }
 
+.preview-panel {
+    margin-top: 20px;
+    padding: 18px;
+    background: var(--white);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow);
+}
+
+.preview-panel.is-expanded {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    background: var(--paper);
+}
+
+body.preview-expanded-body {
+    overflow: hidden;
+}
+
+.content.preview-host-expanded {
+    animation: none;
+}
+
+.preview-head {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.preview-head h2 {
+    margin: 0;
+    font-size: 23px;
+}
+
+.preview-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.preview-frame {
+    display: block;
+    width: 100%;
+    height: min(72vh, 760px);
+    border: 1px solid var(--line);
+    background: var(--paper);
+}
+
+.preview-panel.is-expanded .preview-frame {
+    position: fixed;
+    inset: 0;
+    z-index: 11;
+    width: 100vw;
+    height: 100vh;
+    min-height: 0;
+    border: 0;
+}
+
+.preview-panel.is-expanded .preview-head {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 100%;
+    min-height: 34px;
+    flex: 0 0 34px;
+    align-items: center;
+    justify-content: flex-end;
+    margin: 0;
+    padding: 3px 8px;
+    border-bottom: 1px solid var(--line);
+    background: var(--white);
+}
+
+.preview-panel.is-expanded .preview-meta {
+    display: none;
+}
+
+.preview-panel.is-expanded .preview-actions {
+    gap: 4px;
+}
+
+.preview-panel.is-expanded .preview-actions .action {
+    padding: 7px 9px;
+    font-size: 11px;
+}
+
+.preview-panel.is-expanded .preview-frame {
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    flex: 1 1 auto;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    border: 0;
+}
+
 .auth-overlay {
     position: fixed;
     inset: 0;
@@ -398,6 +500,15 @@ h1 {
     .content-head {
         align-items: flex-start;
         flex-direction: column;
+    }
+
+    .preview-head {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .preview-actions {
+        width: 100%;
     }
 
     .file-row {
