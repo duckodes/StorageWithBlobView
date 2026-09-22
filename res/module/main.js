@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
-import { getStorage, ref, listAll, getDownloadURL, getMetadata } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-storage.js";
+import { getStorage, ref, listAll, getBytes, getMetadata } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-storage.js";
 import { build as esbuildBuild, initialize as esbuildInitialize } from "../../vendor/esbuild-wasm/browser.min.js";
 import fetcher from "./fetcher.js";
 
@@ -41,8 +41,8 @@ const fileDate = (metadata) => metadata.updated ? new Date(metadata.updated).toL
 const collectStorageFiles = async (directoryRef) => {
     const result = await listAll(directoryRef);
     const files = await Promise.all(result.items.map(async (itemRef) => {
-        const [url, metadata] = await Promise.all([getDownloadURL(itemRef), getMetadata(itemRef)]);
-        return { name: itemRef.name, fullPath: itemRef.fullPath, url, metadata };
+        const metadata = await getMetadata(itemRef);
+        return { name: itemRef.name, fullPath: itemRef.fullPath, ref: itemRef, metadata };
     }));
     const nested = await Promise.all(result.prefixes.map((prefix) => collectStorageFiles(prefix)));
     return files.concat(...nested);
@@ -90,9 +90,13 @@ const openStorageHtml = async (file, allFiles) => {
         }
     };
     const downloadedFiles = await Promise.all(allFiles.map(async (item) => {
-        const response = await fetchWithTimeout(item.url, item.name);
-        if (!response.ok) throw new Error(`${item.name} 讀取失敗（HTTP ${response.status}）。`);
-        const blob = new Blob([await response.arrayBuffer()], {
+        let bytes;
+        try {
+            bytes = await getBytes(item.ref);
+        } catch (error) {
+            throw new Error(`${item.name} 讀取失敗：${friendlyError(error)}`);
+        }
+        const blob = new Blob([bytes], {
             type: mimeTypeFor(item.name)
         });
         return { item, blobUrl: URL.createObjectURL(blob) };
@@ -140,7 +144,7 @@ const openStorageHtml = async (file, allFiles) => {
     });
     const moduleFiles = allFiles.filter((item) => /\.(?:m?js)$/i.test(item.name));
     const moduleSources = new Map(await Promise.all(moduleFiles.map(async (item) => {
-        const response = await fetchWithTimeout(item.url, item.name);
+        const response = await fetchWithTimeout(fileMap.get(item.fullPath), item.name);
         if (!response.ok) throw new Error(`${item.name} 讀取失敗（HTTP ${response.status}）。`);
         return [item.fullPath, await response.text()];
     })));
@@ -188,22 +192,22 @@ const openStorageHtml = async (file, allFiles) => {
     const rewriteModuleReferences = (source, directory, referenceMap = fileMap) => {
         let rewritten = source.replace(importPattern, (match, specifier) => {
             const dependency = findStorageFile(storagePathFor(specifier, directory));
-            const dependencyUrl = dependency && (referenceMap.get(dependency.fullPath) || dependency.url);
+            const dependencyUrl = dependency && referenceMap.get(dependency.fullPath);
             return dependencyUrl ? match.replace(specifier, dependencyUrl) : match;
         });
         rewritten = rewritten.replace(/(["'`])(\.\.?\/[^"'`]+)\1/g, (match, quote, specifier) => {
             const dependency = findStorageFile(storagePathFor(specifier, directory));
-            const dependencyUrl = dependency && (referenceMap.get(dependency.fullPath) || dependency.url);
+            const dependencyUrl = dependency && referenceMap.get(dependency.fullPath);
             return dependencyUrl ? `${quote}${dependencyUrl}${quote}` : match;
         });
         for (const item of moduleFiles) {
-            const dependencyUrl = referenceMap.get(item.fullPath) || item.url;
+            const dependencyUrl = referenceMap.get(item.fullPath);
             const escapedName = item.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
             rewritten = rewritten.replace(new RegExp(`(["'])\\./${escapedName}(["'])`, "g"), `$1${dependencyUrl}$2`);
             if (dependencyUrl) rewritten = rewritten.split(`./${item.name}`).join(dependencyUrl);
         }
         const mainModule = moduleFiles.find((item) => item.name.toLowerCase() === "main.js");
-        const mainModuleUrl = mainModule && (referenceMap.get(mainModule.fullPath) || mainModule.url);
+        const mainModuleUrl = mainModule && referenceMap.get(mainModule.fullPath);
         if (mainModuleUrl) rewritten = rewritten.split("./main.js").join(mainModuleUrl);
         return rewritten;
     };
